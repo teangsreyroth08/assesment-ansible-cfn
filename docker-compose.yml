@@ -1,0 +1,53 @@
+version: '3.9'
+
+services:
+  # The Ansible Master machine
+  ansible-master:
+    build:
+      context: .
+      dockerfile: dockerfile.master
+    container_name: ansible-master
+    volumes:
+      - ./:/ansible
+    networks:
+      - ansible_net
+  #   command: tail -f /dev/null # Keep container running
+
+  # The Ubuntu client machine
+  ubuntu:
+    build:
+      context: .
+      dockerfile: dockerfile.ubuntu
+    container_name: ubuntu
+    ports:
+      - "8081:80"
+    networks:
+      - ansible_net
+
+  # The CentOS-like client machine
+  centos:
+    build:
+      context: .
+      dockerfile: dockerfile-v2.centos
+    container_name: centos
+    ports:
+      - "8082:80"
+    networks:
+      - ansible_net
+
+  # The Debian client machine
+  debian:
+    build:
+      context: .
+      dockerfile: dockerfile.debian
+    container_name: debian
+    ports:
+      - "8083:80"
+    networks:
+      - ansible_net
+
+# Define the shared network
+networks:
+  ansible_net:
+    driver: bridge
+

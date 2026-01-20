@@ -1,0 +1,23 @@
+FROM cytopia/ansible:latest
+
+# Needed for password-based SSH (since inventory uses ansible_password)
+RUN apk add --no-cache sshpass openssh-client
+
+# Set the working directory
+WORKDIR /ansible
+
+# Copy the Ansible files into the container
+# Note: The docker-compose.yml will mount this as a volume
+# so you can edit files live, but we copy it for a complete build.
+COPY . /ansible/
+
+# Set correct permissions for the private key
+# RUN chown -R ansible:ansible /ansible/ssh
+# RUN chmod 600 /ansible/ssh/id_rsa
+
+# Keep the container running so we can 'exec' into it
+CMD [ "tail", "-f", "/dev/null" ]
+
+
+
+

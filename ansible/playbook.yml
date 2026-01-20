@@ -1,0 +1,41 @@
+---
+- name: Install and enable Nginx (Debian/Ubuntu)
+  hosts: clients
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Install Nginx
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+        update_cache: true
+      when: ansible_os_family == "Debian"
+
+    - name: Start and enable Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+      when: ansible_os_family == "Debian"
+
+
+- name: Install and enable Nginx (CentOS Stream 9 / RHEL family)
+  hosts: redhat
+  become: true
+  gather_facts: true
+
+  tasks:
+    # CentOS Stream 9 uses dnf. The generic `package` module will use dnf under the hood.
+    - name: Install Nginx
+      ansible.builtin.package:
+        name: nginx
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Start and enable Nginx
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+      when: ansible_os_family == "RedHat"

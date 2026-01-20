@@ -1,0 +1,78 @@
+FROM centos:centos7
+
+# Disable fastestmirror (not useful with vault)
+RUN if [ -f /etc/yum/pluginconf.d/fastestmirror.conf ]; then \
+      sed -i 's/^enabled=.*/enabled=0/' /etc/yum/pluginconf.d/fastestmirror.conf; \
+    fi
+
+# CentOS 7 is EOL: use Vault 7.9.2009 repos (Base)
+RUN cat > /etc/yum.repos.d/CentOS-Base.repo <<'EOF'
+[base]
+name=CentOS-7 - Base
+baseurl=http://vault.centos.org/7.9.2009/os/$basearch/
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
+enabled=1
+
+[updates]
+name=CentOS-7 - Updates
+baseurl=http://vault.centos.org/7.9.2009/updates/$basearch/
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
+enabled=1
+
+[extras]
+name=CentOS-7 - Extras
+baseurl=http://vault.centos.org/7.9.2009/extras/$basearch/
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
+enabled=1
+EOF
+
+# Install EPEL + nginx
+RUN yum -y install --setopt=tsflags=nodocs epel-release && \
+    yum -y install --setopt=tsflags=nodocs nginx && \
+    yum clean all && rm -rf /var/cache/yum
+
+# Use a safe custom web root (always creatable)
+ENV WEB_ROOT=/opt/app-root/src
+
+RUN mkdir -p ${WEB_ROOT} && \
+    echo "nginx on CentOS7" > ${WEB_ROOT}/index.html && \
+    chmod -R a+rX ${WEB_ROOT}
+
+# Force a simple nginx config that serves from WEB_ROOT
+RUN cat > /etc/nginx/nginx.conf <<'EOF'
+user  nginx;
+worker_processes  auto;
+
+error_log  /var/log/nginx/error.log;
+pid        /var/run/nginx.pid;
+
+events { worker_connections  1024; }
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    access_log  /var/log/nginx/access.log;
+
+    sendfile        on;
+    keepalive_timeout  65;
+
+    server {
+        listen       80 default_server;
+        server_name  _;
+
+        root   /opt/app-root/src;
+        index  index.html;
+
+        location / {
+            try_files $uri $uri/ =404;
+        }
+    }
+}
+EOF
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

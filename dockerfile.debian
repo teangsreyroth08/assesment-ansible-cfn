@@ -1,0 +1,21 @@
+FROM debian:11
+
+# Avoid interactive prompts during installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt update && \
+    apt install -y openssh-server sudo python3 && \
+    mkdir -p /var/run/sshd
+
+# Create a user for Ansible
+RUN useradd -m -s /bin/bash ansible && \
+    echo "ansible:ansible" | chpasswd && \
+    adduser ansible sudo && \
+    echo "ansible ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ansible && \
+    chmod 0440 /etc/sudoers.d/ansible
+
+
+EXPOSE 80
+
+# Start the SSH server as the main command
+CMD ["/usr/sbin/sshd", "-D"]
