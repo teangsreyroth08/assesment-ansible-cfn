@@ -1,0 +1,436 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "CloudFormation"
+
+Parameters:
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+
+  AllowedUserIP:
+    Description: The IP address that can access MySQL (x.x.x.x/32)
+    Type: String
+    Default: 0.0.0.0/0
+  
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.0.1.0/24
+
+  AppSubnet1Cidr:
+    Type: String
+    Default: 10.0.24.0/24
+  AppSubnet2Cidr:
+    Type: String
+    Default: 10.0.25.0/24
+  AppSubnet3Cidr:
+    Type: String
+    Default: 10.0.26.0/24
+
+  PrivateSubnet1Cidr:
+    Type: String
+    Default: 10.0.27.0/24
+  PrivateSubnet2Cidr:
+    Type: String
+    Default: 10.0.28.0/24
+  PrivateSubnet3Cidr:
+    Type: String
+    Default: 10.0.29.0/24 
+
+  AmiId:
+    Description: AMI ID for EC2 instance
+    Type: String
+    Default: ami-068c0051b15cdb816
+    # Default: ami-0ecb62995f68bb549
+
+  InstanceTypeParameter:
+    Description: EC2 instance type
+    Type: String
+    #Default: t3.micro
+    Default: t2.micro
+
+#RDS aurora
+  DBUsername:
+    NoEcho: 'true'
+    Description: Username for MySQL database access
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  DBName:
+    Default: mydb
+    Description: My database
+    Type: String
+    MinLength: '1'
+    MaxLength: '64'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters.
+  DBPassword:
+    NoEcho: 'true'
+    Description: Password MySQL database access
+    Type: String
+    MinLength: '8'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+
+  DBInstanceClass:
+    Default: db.t3.medium
+    Description: DB instance class
+    Type: String
+    ConstraintDescription: Must select a valid DB instance type.
+    AllowedValues:
+      - db.t3.medium
+      - db.t4g.medium
+      - db.r5.large
+
+Resources:
+
+  # VPC 
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value: main-vpc
+
+  # Subnets 
+  AppSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref AppSubnet1Cidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: app-subnet1
+
+  AppSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref AppSubnet2Cidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [1, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: app-subnet2
+
+  AppSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref AppSubnet3Cidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [2, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: app-subnet3
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet1Cidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: private-subnet1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet2Cidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [1, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: private-subnet2
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet3Cidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [2, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: private-subnet3
+
+  # Internet Gateway 
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '' ]
+      CidrBlock: !Ref PublicSubnetCidr
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: public-subnet-1
+  
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+    
+  # NAT Gateway 
+  NATGatewayEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+  
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+      Tags:
+        - Key: Name
+          Value: private-route
+  AppSubnet1Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AppSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  AppSubnet2Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AppSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  AppSubnet3Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AppSubnet3
+      RouteTableId: !Ref PrivateRouteTable
+
+  #RDS Aurora SG
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Aurora DB access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          # SourceSecurityGroupId: !Ref AppSecurityGroup
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags: 
+        - Key: Name
+          Value: db-security-group
+  
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private subnets for Aurora
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet3
+      Tags:
+        - Key:  Name
+          Value: rds-db-sg
+
+  AuroraCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-mysql
+      EngineVersion: "8.0.mysql_aurora.3.08.2"
+      DatabaseName: appdb
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref DBSecurityGroup
+      BackupRetentionPeriod: 7
+      StorageEncrypted: true
+      DeletionProtection: false
+
+  AuroraInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref AuroraCluster
+      DBInstanceClass: !Ref DBInstanceClass
+      Engine: aurora-mysql
+      PubliclyAccessible: false
+
+  # Security Groups 
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Allow app traffic
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          # SourceSecurityGroupId: 
+          #   - !Ref NetworkSecurityGroup
+          # CidrIp: !Ref VpcCidr   # Allow all VPC traffic (required for NLB health checks)
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0 
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          DestinationSecurityGroupId: !Ref DBSecurityGroup
+      
+      Tags:
+        - Key: Name
+          Value: app-secuirty-group
+
+  #EC2 Instance
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceTypeParameter
+      KeyName: v-1
+      SubnetId: !Ref AppSubnet1
+      SecurityGroupIds:
+        - !Ref AppSecurityGroup
+      Tags:
+        - Key: Name
+          Value: myec2instance
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          sudo yum update -y
+          sudo yum install -y docker
+          sudo service docker start
+
+          # Install docker-compose
+          sudo curl -L https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m) -o /usr/local/bin/docker-compose
+          # enable permission
+          sudo chmod +x /usr/local/bin/docker-compose
+
+          docker-compose version 
+
+          cat << EOF > /home/ec2-user/docker-compose.yaml                                                                                
+          version: "3.8"
+          services:
+            mediawiki:
+              image: mediawiki
+              ports:
+                - "80:80"
+              restart: always
+          EOF
+          cd /home/ec2-user
+          docker-compose up -d
+
+  #NLB + TG
+  myTG:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: my-target-group
+      VpcId: !Ref VPC
+      TargetType: instance
+      Protocol: TCP
+      Port: 80
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: TCP
+      Targets:
+        - Id: !Ref EC2Instance
+          Port: 80
+
+  NetworkSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Allow app traffic
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          # CidrIp: !Ref VpcCidr   # Allow all VPC traffic (required for NLB health checks)
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          DestinationSecurityGroupId: !Ref AppSecurityGroup  #who receives the traffic
+      Tags:
+        - Key: Name
+          Value: network-secuirty-group
+
+
+  myNLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: template-2-nlb
+      Type: network
+      Scheme: internet-facing
+      Subnets:
+        - !Ref PublicSubnet1
+      SecurityGroups: 
+        - !Ref AppSecurityGroup
+      # NOTE: NLB does NOT support security groups → removed
+
+  myListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref myNLB
+      Protocol: TCP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref myTG
+
+Outputs:
+  myNLBURL:
+    Description: Access URL
+    Value: !GetAtt myNLB.DNSName

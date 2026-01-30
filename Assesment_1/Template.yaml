@@ -1,0 +1,270 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: MediaWiki Template with 3 Subnet CloudFormation Template
+
+Parameters:
+  VPCCidr:
+    Type: String
+    Description: The CIDR block for the VPC
+    Default: 10.0.0.0/16
+
+  AppSubnet1Cidr:
+    Type: String
+    Default: 10.0.24.0/24
+
+  AppSubnet2Cidr:
+    Type: String
+    Default: 10.0.25.0/24
+
+  AppSubnet3Cidr:
+    Type: String
+    Default: 10.0.26.0/24
+
+  AllowedUserIP:
+    Description: The IP address allowed to access the Load Balancer
+    Type: String
+    Default: 0.0.0.0/0
+
+  # Dynamic Parameter to fetch the latest Ubuntu 22.04 AMI ID for the region
+  AmiId:
+    Description: AMI ID for EC2 instance
+    Type: String
+    Default: ami-068c0051b15cdb816
+
+
+Resources:
+  DemoVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: DemoVPC
+  
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: my-InternetGateway
+  
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref DemoVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Public Subnet (For NAT Gateway & Load Balancer)
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DemoVPC
+      CidrBlock: 10.0.11.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: public-subnet
+
+  # Private Subnets (For Application)
+  AppSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DemoVPC
+      CidrBlock: !Ref AppSubnet1Cidr
+      AvailabilityZone: !Select [0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: app-subnet1
+
+  AppSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DemoVPC
+      CidrBlock: !Ref AppSubnet2Cidr
+      AvailabilityZone: !Select [1, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: app-subnet2
+
+  AppSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref DemoVPC
+      CidrBlock: !Ref AppSubnet3Cidr
+      AvailabilityZone: !Select [2, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: app-subnet3
+
+  NATGatewayEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: nat-gateway
+  
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref DemoVPC
+  
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref DemoVPC
+  
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    DependsOn: NATGateway
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+  
+  AppSubnet1Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref AppSubnet1
+
+  # Security Groups
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP and SSH
+      VpcId: !Ref DemoVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AllowedUserIP
+        - IpProtocol: tcp 
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedUserIP
+
+  # Application Instance
+  MyInstance:
+    Type: AWS::EC2::Instance
+    
+    DependsOn: PrivateRoute 
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: t2.micro
+      SubnetId: !Ref AppSubnet1
+      SecurityGroupIds:
+        - !Ref InstanceSecurityGroup
+      Tags:
+        - Key: Name
+          Value: Media-Wiki-1
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt-get update -y
+          apt-get install -y docker.io docker-compose
+          
+          # Setup Directory
+          mkdir -p /home/ubuntu/mediawiki
+          cd /home/ubuntu/mediawiki
+
+          # Create Docker Compose file with CORRECT indentation
+          cat <<EOF > docker-compose.yml
+          version: '3'
+          services:
+            mediawiki:
+              image: mediawiki
+              restart: always
+              ports:
+                - 80:80
+              links:
+                - database
+              volumes:
+                - images:/var/www/html/images
+            database:
+              image: mariadb
+              restart: always
+              environment:
+                MYSQL_DATABASE: my_wiki
+                MYSQL_USER: wikiuser
+                MYSQL_PASSWORD: example
+                MYSQL_RANDOM_ROOT_PASSWORD: 'yes'
+              volumes:
+                - db:/var/lib/mysql
+          volumes:
+            images:
+            db:
+          EOF
+          
+          # Start Containers
+          docker-compose up -d
+
+  # Load Balancer Resources
+  NetworkLoadBalance:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: wiki-nlb-1
+      Type: network
+      Scheme: internet-facing
+      Subnets:
+        - !Ref PublicSubnet
+      SecurityGroups:
+        - !Ref InstanceSecurityGroup
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: my-target-group-1
+      Protocol: TCP
+      Port: 80
+      TargetType: instance
+      VpcId: !Ref DemoVPC
+      HealthCheckProtocol: TCP
+      HealthCheckPort: traffic-port
+      Targets:
+        - Id: !Ref MyInstance
+          Port: 80
+        
+  myListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref NetworkLoadBalance
+      Protocol: TCP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+# Outputs:
+#   myNLBURL:
+#     Description: The URL to access MediaWiki
+#     Value: !Join [ "", [ "http://", !GetAtt NetworkLoadBalance.DNSName ] ]
+
+Outputs:
+  myNLBURL:
+    Description: The URL to access MediaWiki
+    Value: !GetAtt myNLB.DNSName
+    

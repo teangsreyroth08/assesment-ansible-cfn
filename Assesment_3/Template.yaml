@@ -1,0 +1,620 @@
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "CloudFormation template RDS ECS ASG with EC2Instance"
+
+Parameters:
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+
+  AllowedUserIP:
+    Description: The IP address that can access MySQL (x.x.x.x/32)
+    Type: String
+    Default: 0.0.0.0/0
+  
+  # PublicSubnetCidr:
+  #   Type: String
+  #   Default: 10.0.1.0/24
+
+  PubSubnet1Cidr:
+    Type: String
+    Default: 10.0.21.0/24
+
+  PubSubnet2Cidr:
+    Type: String
+    Default: 10.0.22.0/24
+
+  PubSubnet3Cidr:
+    Type: String
+    Default: 10.0.23.0/24
+
+  AppSubnet1Cidr:
+    Type: String
+    Default: 10.0.24.0/24
+  AppSubnet2Cidr:
+    Type: String
+    Default: 10.0.25.0/24
+  AppSubnet3Cidr:
+    Type: String
+    Default: 10.0.26.0/24
+
+  PrivateSubnet1Cidr:
+    Type: String
+    Default: 10.0.27.0/24
+  PrivateSubnet2Cidr:
+    Type: String
+    Default: 10.0.28.0/24
+  PrivateSubnet3Cidr:
+    Type: String
+    Default: 10.0.29.0/24 
+
+  AmiId:
+    Description: AMI ID for EC2 instance
+    Type: String
+    Default: ami-068c0051b15cdb816 # Amazon linux
+    # Default: ami-0ecb62995f68bb549
+
+  InstanceTypeParameter:
+    Description: EC2 instance type
+    Type: String
+    # Default: t3.micro
+    Default: t2.micro
+
+  #RDS aurora
+  DBUsername:
+    NoEcho: 'true'
+    Description: Username for MySQL database access
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  DBName:
+    Default: mydb
+    Description: My database
+    Type: String
+    MinLength: '1'
+    MaxLength: '24'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters.
+  DBPassword:
+    NoEcho: 'true'
+    Description: Password MySQL database access
+    Type: String
+    MinLength: '8'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+  DBInstanceClass:
+    Default: db.t3.medium
+    Description: DB instance class
+    Type: String
+    ConstraintDescription: Must select a valid DB instance type.
+    AllowedValues:
+      - db.t3.medium
+      - db.t4g.medium
+      - db.r5.large
+
+  LatestECSAMI:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id
+
+Resources:
+  # VPC 
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value: main-vpc
+
+  # Subnets 
+  PubSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PubSubnet1Cidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: pub-subnet-1
+
+  PubSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PubSubnet2Cidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [1, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: pub-subnet-2
+
+  PubSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PubSubnet3Cidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [2, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: pub-subnet-3
+
+  AppSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref AppSubnet1Cidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: app-subnet-1
+
+  AppSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref AppSubnet2Cidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [1, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: app-subnet-2
+
+  AppSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref AppSubnet3Cidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [2, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: app-subnet-3
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet1Cidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: private-subnet-1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet2Cidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [1, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: private-subnet-2
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet3Cidr
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [2, !GetAZs '' ]
+      Tags:
+        - Key: Name
+          Value: private-subnet-3
+
+  # Internet Gateway 
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: my-internet-gateway
+    
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: public-route
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PubSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PubSubnet1
+
+  PubSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PubSubnet2
+
+  PubSubnet3RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PubSubnet3
+
+  # NAT Gateway 
+  NATGatewayEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: main-vpc
+      Tags:
+        - Key: Name
+          Value: my-EIP
+
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGatewayEIP.AllocationId
+      SubnetId: !Ref PubSubnet1
+      Tags:
+        - Key: Name
+          Value: my-nat-gateway
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: private-route
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+  
+  AppSubnet1Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AppSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  AppSubnet2Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AppSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  AppSubnet3Association:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AppSubnet3
+      RouteTableId: !Ref PrivateRouteTable
+
+  #RDS Aurora SG
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Aurora DB access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          # SourceSecurityGroupId: !Ref AppSecurityGroup
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags: 
+        - Key: Name
+          Value: db-sg-aurora
+  
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private subnets for Aurora
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet3
+      Tags:
+        - Key:  Name
+          Value: rds-db-sg
+
+  AuroraCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-mysql
+      EngineVersion: "8.0.mysql_aurora.3.08.2"
+      DatabaseName: appdb
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref DBSecurityGroup
+      BackupRetentionPeriod: 7
+      StorageEncrypted: true
+      DeletionProtection: false
+
+  AuroraInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref AuroraCluster
+      DBInstanceClass: !Ref DBInstanceClass
+      Engine: aurora-mysql
+      PubliclyAccessible: false
+
+  # Security Groups 
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Allow app traffic
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          # CidrIp: 0.0.0.0/0
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0 
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          DestinationSecurityGroupId: !Ref DBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: app-secuirty-group
+
+  #ECS Cluster + EC2 Instance
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: mediawiki
+      RequiresCompatibilities: 
+        - EC2
+      NetworkMode: host       
+      Cpu: 256
+      Memory: 512
+      ExecutionRoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/ecsTaskExecutionRole
+      RuntimePlatform:
+        CpuArchitecture: x86_64
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions: 
+        - Name: mediawiki
+          Image: mediawiki:latest
+          # Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/mediawiki:latest
+          Essential: true
+          Cpu: 256
+          Memory: 512
+          PortMappings:
+            - ContainerPort: 80
+              HostPort: 80
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ECSCloudWatch
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: mediawiki
+          MountPoints:
+            - SourceVolume: wiki-images
+              ContainerPath: /var/www/html/images
+
+            - SourceVolume: wiki-config
+              ContainerPath: /var/www/html/config
+              ReadOnly: false
+      Volumes:
+        - Name: wiki-images
+          Host:
+            SourcePath: /ecs/mediawiki/images
+        - Name: wiki-config
+          Host:
+            SourcePath: /ecs/mediawiki/config
+      Tags: 
+        - Key: Name
+          Value: wiki-task/var/www/html/images
+
+  ECSCloudWatch:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/mediawiki
+      RetentionInDays: 14
+  
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: ecs-cluster
+
+  #Bastion
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Bastion SSH access
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.medium
+      ImageId: !Ref LatestECSAMI
+      KeyName: v-1
+      # SubnetId: !Ref PubSubnet1   # MUST be public subnet
+      # SecurityGroupIds:
+      #   - !Ref BastionSecurityGroup
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          SubnetId: !Ref PubSubnet1
+          GroupSet:
+            - !Ref BastionSecurityGroup
+      Tags:
+        - Key: Name
+          Value: bastion-host
+
+  #AutoScalingGroup
+  ECSLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref LatestECSAMI 
+        InstanceType: t3.medium
+        KeyName: v-1
+        IamInstanceProfile:
+          Arn: !Sub arn:aws:iam::${AWS::AccountId}:instance-profile/ecsInstanceRole
+        SecurityGroupIds:
+          - !Ref AppSecurityGroup
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            echo ECS_CLUSTER=ecs-cluster >> /etc/ecs/ecs.config
+
+  ECSAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier: 
+        - !Ref AppSubnet1
+        - !Ref AppSubnet2
+        - !Ref AppSubnet3
+      LaunchTemplate:
+        LaunchTemplateId: !Ref ECSLaunchTemplate
+        Version: !GetAtt ECSLaunchTemplate.LatestVersionNumber
+      MinSize: 1
+      MaxSize: 3
+      DesiredCapacity: 1
+
+  CapacityProvider:
+    Type: AWS::ECS::CapacityProvider
+    Properties:
+      Name: media-wiki-capacity-provider
+      AutoScalingGroupProvider:
+        AutoScalingGroupArn: !Ref ECSAutoScalingGroup
+        ManagedScaling:
+          Status: ENABLED
+          TargetCapacity: 100
+          MinimumScalingStepSize: 1
+          MaximumScalingStepSize: 3
+        ManagedTerminationProtection: DISABLED
+
+  ClusterCapacityProviderAssociation:
+    Type: AWS::ECS::ClusterCapacityProviderAssociations
+    Properties:
+      Cluster: !Ref ECSCluster
+      CapacityProviders:
+        - !Ref CapacityProvider
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: !Ref CapacityProvider
+          Weight: 1
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: myListener
+    Properties:
+      Cluster: !Ref ECSCluster
+      DesiredCount: 1
+      TaskDefinition: !Ref TaskDefinition
+      CapacityProviderStrategy:
+        - CapacityProvider: !Ref CapacityProvider
+          Weight: 1
+      LoadBalancers:
+        - ContainerName: mediawiki
+          ContainerPort: 80
+          TargetGroupArn: !Ref TargetGroup
+
+  #NLB + TG
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Port: 80
+      Protocol: TCP
+      TargetType: instance
+      VpcId: !Ref VPC
+      HealthCheckProtocol: TCP
+
+  NetworkSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Allow app traffic
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          # CidrIp: !Ref VpcCidr   # Allow all VPC traffic (required for NLB health checks)
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          DestinationSecurityGroupId: !Ref AppSecurityGroup  #who receives the traffic
+      Tags:
+        - Key: Name
+          Value: network-secuirty-group
+
+  myNLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: wiki-nlb
+      Type: network
+      Scheme: internet-facing
+      Subnets:
+        - !Ref PubSubnet1
+        - !Ref PubSubnet2
+        - !Ref PubSubnet3
+      SecurityGroups: 
+        - !Ref AppSecurityGroup
+
+  myListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref myNLB
+      Protocol: TCP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  myNLBURL:
+    Description: Access URL
+    Value: !GetAtt myNLB.DNSName
+
